@@ -379,11 +379,29 @@ class AgentBotListener < BaseListener
   def skip_for_gate?(agent_bot_inbox, conversation, label: 'message')
     return false if agent_bot_inbox.blank?
 
+    if skip_during_working_hours?(conversation)
+      Rails.logger.info "[AgentBot Listener] Skipping #{label} - conv #{conversation.id}: inside inbox working hours"
+      return true
+    end
+
     skip_reason = agent_bot_inbox.processing_block_reason(conversation)
     return false if skip_reason.nil?
 
     Rails.logger.info "[AgentBot Listener] Skipping #{label} - conv #{conversation.id}: #{skip_reason}"
     true
+  end
+
+  # Opt-in (AGENT_BOT_ONLY_OUTSIDE_WORKING_HOURS=true): the bot stays silent while
+  # the inbox is inside its configured working hours (human team is available) and
+  # only answers when the inbox is closed. Inboxes without working hours enabled
+  # keep the previous behavior (bot always answers).
+  def skip_during_working_hours?(conversation)
+    return false unless ActiveModel::Type::Boolean.new.cast(ENV.fetch('AGENT_BOT_ONLY_OUTSIDE_WORKING_HOURS', 'false'))
+
+    inbox = conversation.inbox
+    return false unless inbox&.working_hours_enabled?
+
+    inbox.working_now?
   end
 
   # Get the appropriate agent bot for a message
